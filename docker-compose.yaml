@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres # Берём официальный образ PostgreSQL → гарантировано рабочий.
+    container_name: autoglobal-postgres
+    ports: # Это проброс портов между HOST и КОНТЕЙНЕРОМ
+      - "5432:5432"
+    environment: # Задаём параметры для инициализации БД
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 12345
+      POSTGRES_DB: db-autoglobal
+    volumes: # Не даёт базе стираться при перезапуске
+      - postgres_data:/var/lib/postgresql/data
+        
+volumes:
+  postgres_data:
+
