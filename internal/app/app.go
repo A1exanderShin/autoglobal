@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/A1exanderShin/autoglobal/internal/config"
+	"github.com/A1exanderShin/autoglobal/internal/http/handlers"
 	"github.com/A1exanderShin/autoglobal/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,6 +31,8 @@ func Run(cfg *config.Config) error {
 
 	// 2. Создаём новый HTTP-роутер на базе chi
 	router := chi.NewRouter()
+
+	router.Get("/health", handlers.Health)
 
 	// 3. Сборка объекта App
 	// Сохраняем конфиг, базу и роутер в структуре
