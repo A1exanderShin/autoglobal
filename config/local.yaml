@@ -5,5 +5,5 @@ postgres:
   host: "localhost"
   port: 5432
   user: "postgres"
-  password: "postgres"
-  database: "autoglobal"
+  password: "12345"
+  database: "db-autoglobal"

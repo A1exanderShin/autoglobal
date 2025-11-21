@@ -19,7 +19,7 @@ func NewPostgresPool(cfg config.PostgresConfig) (*pgxpool.Pool, error) {
 	// имя базы
 	// То есть куда и как Go должен подключиться к PostgreSQL
 	// В Go драйвер pgx принимает DSN в виде строки
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
 		cfg.User,
 		cfg.Password,
 		cfg.Host,
