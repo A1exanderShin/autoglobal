@@ -6,6 +6,7 @@ import (
 
 	"github.com/A1exanderShin/autoglobal/internal/config"
 	"github.com/A1exanderShin/autoglobal/internal/http/handlers"
+	"github.com/A1exanderShin/autoglobal/internal/http/middleware"
 	"github.com/A1exanderShin/autoglobal/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,6 +32,11 @@ func Run(cfg *config.Config) error {
 
 	// 2. Создаём новый HTTP-роутер на базе chi
 	router := chi.NewRouter()
+
+	// Подключаем middleware в нужном порядке
+	router.Use(middleware.RequestID) // сначала добавляем request-id
+	router.Use(middleware.Logger)    // логгер использует request-id
+	router.Use(middleware.Recoverer) // ловим паники в самом конце цепочки
 
 	router.Get("/health", handlers.Health)
 
