@@ -1,9 +1,12 @@
 package app
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
+	"github.com/A1exanderShin/autoglobal/internal/cars/repository"
+	"github.com/A1exanderShin/autoglobal/internal/cars/service"
 	"github.com/A1exanderShin/autoglobal/internal/config"
 	"github.com/A1exanderShin/autoglobal/internal/http/handlers"
 	"github.com/A1exanderShin/autoglobal/internal/http/middleware"
@@ -12,51 +15,78 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// App — главный объект приложения
-// Хранит конфигурацию, подключение к БД и HTTP-роутер
+// App — главный объект приложения.
+// Хранит конфигурацию, подключение к БД и HTTP-роутер.
 type App struct {
 	Cfg    config.Config
 	DB     *pgxpool.Pool
 	Router *chi.Mux
 }
 
-// Run — точка входа для сервиса
-// Создаёт подключение к PostgreSQL, инициализирует роутер и запускает HTTP-сервер
+// Run — точка входа для сервиса.
+// Последовательность:
+// 1) Подключение к БД
+// 2) Прогон миграций
+// 3) Инициализация роутера и middleware
+// 4) Подключение модулей (репозиторий → сервис → хендлеры)
+// 5) Запуск HTTP-сервера
 func Run(cfg *config.Config) error {
-	// 1. Инициализация пула PostgreSQL
-	// Подключаемся к базе и проверяем соединение через Ping()
+
+	// 1. Подключение к PostgreSQL
 	pool, err := storage.NewPostgresPool(cfg.Postgres)
 	if err != nil {
 		return err
 	}
 
-	// 2. Создаём новый HTTP-роутер на базе chi
+	// 2. Прогон миграций (инициализация структуры БД)
+	if err := storage.RunMigrations(pool); err != nil {
+		return fmt.Errorf("migrations failed: %w", err)
+	}
+
+	// -----------------------------
+	// Cars module (репозиторий → сервис → хендлеры)
+	// -----------------------------
+
+	// Репозиторий — работает с PostgreSQL
+	carRepo := repository.NewPostgresCarRepository(pool)
+
+	// Service — бизнес-логика (валидация, обработка ошибок, управление сущностями)
+	carSvc := service.New(carRepo)
+
+	// Handlers — HTTP-уровень (получают запросы, вызывают сервис, формируют ответы)
+	carHandlers := handlers.NewCarHandlers(carSvc)
+
+	// 3. Создание HTTP-роутера
 	router := chi.NewRouter()
 
-	// Подключаем middleware в нужном порядке
-	router.Use(middleware.RequestID) // сначала добавляем request-id
-	router.Use(middleware.Logger)    // логгер использует request-id
-	router.Use(middleware.Recoverer) // ловим паники в самом конце цепочки
+	// 4. Middleware (добавляют функциональность на уровне HTTP)
+	router.Use(middleware.RequestID) // каждому запросу присваивается уникальный ID
+	router.Use(middleware.Logger)    // логирование запросов/ответов
+	router.Use(middleware.Recoverer) // защита от паник — возвращает JSON 500
 
+	// Health-check для автоматизированных систем мониторинга
 	router.Get("/health", handlers.Health)
 
-	// 3. Сборка объекта App
-	// Сохраняем конфиг, базу и роутер в структуре
+	// Cars API — REST эндпоинты
+	router.Route("/cars", func(r chi.Router) {
+		r.Post("/", carHandlers.CreateCar) // создание машины
+		r.Get("/{id}", carHandlers.GetCar) // получение машины по ID
+		r.Get("/", carHandlers.ListCars)   // список всех машин
+	})
+
+	// 5. Создание объекта приложения (чтобы можно было расширять в будущем)
 	app := &App{
 		Cfg:    *cfg,
 		DB:     pool,
 		Router: router,
 	}
 
-	// 4. Создаём HTTP-сервер
-	// Addr — порт, который сервис будет слушать
-	// Handler — корневой роутер chi
+	// 6. Создание и запуск HTTP-сервера
 	srv := http.Server{
-		Addr:    ":" + strconv.Itoa(cfg.HTTP.Port),
-		Handler: app.Router,
+		Addr:    ":" + strconv.Itoa(cfg.HTTP.Port), // порт из конфига
+		Handler: app.Router,                        // корневой роутер
 	}
 
-	// 5. Запускаем HTTP-сервер
-	// Блокирующая операция: пока не упадёт — выполнение main.go стоит
+	// Запускаем сервис (блокирует выполнение)
 	return srv.ListenAndServe()
 }
