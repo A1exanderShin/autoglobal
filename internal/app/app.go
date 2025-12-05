@@ -5,10 +5,11 @@ import (
 	"net/http"
 	"strconv"
 
+	carHandlers "github.com/A1exanderShin/autoglobal/internal/cars/handlers"
 	"github.com/A1exanderShin/autoglobal/internal/cars/repository"
 	"github.com/A1exanderShin/autoglobal/internal/cars/service"
 	"github.com/A1exanderShin/autoglobal/internal/config"
-	"github.com/A1exanderShin/autoglobal/internal/http/handlers"
+	httpHandlers "github.com/A1exanderShin/autoglobal/internal/http/handlers"
 	"github.com/A1exanderShin/autoglobal/internal/http/middleware"
 	"github.com/A1exanderShin/autoglobal/internal/storage"
 	"github.com/go-chi/chi/v5"
@@ -54,7 +55,7 @@ func Run(cfg *config.Config) error {
 	carSvc := service.New(carRepo)
 
 	// Handlers — HTTP-уровень (получают запросы, вызывают сервис, формируют ответы)
-	carHandlers := handlers.NewCarHandlers(carSvc)
+	carHandlers := carHandlers.NewCarHandlers(carSvc)
 
 	// 3. Создание HTTP-роутера
 	router := chi.NewRouter()
@@ -65,7 +66,7 @@ func Run(cfg *config.Config) error {
 	router.Use(middleware.Recoverer) // защита от паник — возвращает JSON 500
 
 	// Health-check для автоматизированных систем мониторинга
-	router.Get("/health", handlers.Health)
+	router.Get("/health", httpHandlers.Health)
 
 	// Cars API — REST эндпоинты
 	router.Route("/cars", func(r chi.Router) {
