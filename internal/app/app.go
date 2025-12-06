@@ -73,6 +73,8 @@ func Run(cfg *config.Config) error {
 		r.Post("/", carHandlers.CreateCar) // создание машины
 		r.Get("/{id}", carHandlers.GetCar) // получение машины по ID
 		r.Get("/", carHandlers.ListCars)   // список всех машин
+		r.Put("/{id}", carHandlers.UpdateCar)
+		r.Delete("/{id}", carHandlers.DeleteCar)
 	})
 
 	// 5. Создание объекта приложения (чтобы можно было расширять в будущем)

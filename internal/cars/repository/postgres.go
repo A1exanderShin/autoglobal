@@ -2,10 +2,13 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"github.com/A1exanderShin/autoglobal/internal/cars"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var ErrNotFound = errors.New("car not found")
 
 // PostgresCarRepository — реализация CarRepository,
 // которая работает с PostgreSQL через pgxpool
@@ -114,4 +117,37 @@ func (r *PostgresCarRepository) List(ctx context.Context) ([]cars.Car, error) {
 
 	// Возвращаем собранный список.
 	return list, nil
+}
+
+func (r *PostgresCarRepository) Update(ctx context.Context, id int64, c cars.Car) error {
+	query := `
+		UPDATE cars
+		SET brand = $1, model = $2, year = $3, price = $4
+		WHERE id = $5
+	`
+	res, err := r.db.Exec(ctx, query, c.Brand, c.Model, c.Year, c.Price, id)
+	if err != nil {
+		return err
+	}
+
+	if res.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+func (r *PostgresCarRepository) Delete(ctx context.Context, id int64) error {
+	query := `DELETE FROM cars WHERE id = $1`
+
+	res, err := r.db.Exec(ctx, query, id)
+	if err != nil {
+		return err
+	}
+
+	if res.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+
+	return nil
 }

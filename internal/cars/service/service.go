@@ -7,6 +7,7 @@ import (
 
 	"github.com/A1exanderShin/autoglobal/internal/cars"
 	"github.com/A1exanderShin/autoglobal/internal/cars/dto"
+	"github.com/A1exanderShin/autoglobal/internal/cars/repository"
 )
 
 var (
@@ -18,6 +19,8 @@ type CarRepository interface {
 	Create(ctx context.Context, c cars.Car) (int64, error)
 	GetByID(ctx context.Context, id int64) (*cars.Car, error)
 	List(ctx context.Context) ([]cars.Car, error)
+	Update(ctx context.Context, id int64, car cars.Car) error
+	Delete(ctx context.Context, id int64) error
 }
 
 type Service struct {
@@ -73,5 +76,58 @@ func (s *Service) ListCars(ctx context.Context) ([]cars.Car, error) {
 		return nil, err
 	}
 	return list, nil
+}
 
+func (s *Service) UpdateCar(ctx context.Context, id int64, req dto.UpdateCarRequest) error {
+	currentYear := time.Now().Year()
+
+	// Валидация входных данных
+	if req.Brand == "" || req.Model == "" {
+		return ErrValidation
+	}
+	if req.Year < 1900 || req.Year > currentYear {
+		return ErrValidation
+	}
+	if req.Price < 0 {
+		return ErrValidation
+	}
+
+	// Подготовка контекста с таймаутом
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	// Формируем доменную сущность
+	car := cars.Car{
+		ID:    id,
+		Brand: req.Brand,
+		Model: req.Model,
+		Year:  req.Year,
+		Price: req.Price,
+	}
+
+	// Вызываем репозиторий
+	err := s.repo.Update(cctx, id, car)
+	if err != nil {
+		if err == repository.ErrNotFound {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (s *Service) DeleteCar(ctx context.Context, id int64) error {
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	err := s.repo.Delete(cctx, id)
+	if err != nil {
+		if err == repository.ErrNotFound {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	return nil
 }
