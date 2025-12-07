@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/A1exanderShin/autoglobal/internal/app"
 	"github.com/A1exanderShin/autoglobal/internal/config"
-	"os"
 )
 
 func main() {
