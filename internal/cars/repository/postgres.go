@@ -3,8 +3,11 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/A1exanderShin/autoglobal/internal/cars"
+	"github.com/A1exanderShin/autoglobal/internal/cars/dto"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -116,6 +119,101 @@ func (r *PostgresCarRepository) List(ctx context.Context) ([]cars.Car, error) {
 	}
 
 	// Возвращаем собранный список.
+	return list, nil
+}
+
+func (r *PostgresCarRepository) ListFiltered(ctx context.Context, f dto.CarFilters) ([]cars.Car, error) {
+	query := "SELECT id, brand, model, year, price FROM cars"
+
+	var where []string
+	var args []interface{}
+	argID := 1
+
+	// Здесь мы скоро добавим условия where = append(...)
+	if f.Brand != "" {
+		where = append(where, fmt.Sprintf("brand ILIKE $%d", argID))
+		args = append(args, "%"+f.Brand+"%")
+		argID++
+	}
+
+	if f.Model != "" {
+		where = append(where, fmt.Sprintf("model ILIKE $%d", argID))
+		args = append(args, "%"+f.Model+"%")
+		argID++
+	}
+
+	if f.MinYear > 0 {
+		where = append(where, fmt.Sprintf("year >= $%d", argID))
+		args = append(args, f.MinYear)
+		argID++
+	}
+
+	if f.MaxYear > 0 {
+		where = append(where, fmt.Sprintf("year <= $%d", argID))
+		args = append(args, f.MaxYear)
+		argID++
+	}
+
+	if f.MinPrice > 0 {
+		where = append(where, fmt.Sprintf("price >= $%d", argID))
+		args = append(args, f.MinPrice)
+		argID++
+	}
+
+	if f.MaxPrice > 0 {
+		where = append(where, fmt.Sprintf("price <= $%d", argID))
+		args = append(args, f.MaxPrice)
+		argID++
+	}
+
+	// Добавляем WHERE если есть условия
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+
+	switch f.Sort {
+	case "price_asc":
+		query += " ORDER BY price ASC"
+	case "price_desc":
+		query += " ORDER BY price DESC"
+	case "year_asc":
+		query += " ORDER BY year ASC"
+	case "year_desc":
+		query += " ORDER BY year DESC"
+	default:
+		query += " ORDER BY id DESC"
+	}
+
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+
+	page := f.Page
+	if page <= 0 {
+		page = 1
+	}
+
+	offset := (page - 1) * limit
+
+	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	list := []cars.Car{}
+
+	for rows.Next() {
+		var car cars.Car
+		if err := rows.Scan(&car.ID, &car.Brand, &car.Model, &car.Year, &car.Price); err != nil {
+			return nil, err
+		}
+		list = append(list, car)
+	}
+
 	return list, nil
 }
 

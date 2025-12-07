@@ -18,7 +18,7 @@ var (
 type CarRepository interface {
 	Create(ctx context.Context, c cars.Car) (int64, error)
 	GetByID(ctx context.Context, id int64) (*cars.Car, error)
-	List(ctx context.Context) ([]cars.Car, error)
+	ListFiltered(ctx context.Context, f dto.CarFilters) ([]cars.Car, error)
 	Update(ctx context.Context, id int64, car cars.Car) error
 	Delete(ctx context.Context, id int64) error
 }
@@ -70,11 +70,26 @@ func (s *Service) GetCar(ctx context.Context, id int64) (*cars.Car, error) {
 	return car, nil
 }
 
-func (s *Service) ListCars(ctx context.Context) ([]cars.Car, error) {
-	list, err := s.repo.List(ctx)
+func (s *Service) ListFiltered(ctx context.Context, f dto.CarFilters) ([]cars.Car, error) {
+	// 1. Валидации диапазонов
+	if f.MinYear != 0 && f.MaxYear != 0 && f.MinYear > f.MaxYear {
+		return nil, ErrValidation
+	}
+
+	if f.MinPrice != 0 && f.MaxPrice != 0 && f.MinPrice > f.MaxPrice {
+		return nil, ErrValidation
+	}
+
+	// 2. Контекст с таймаутом
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	// 3. Вызов репозитория
+	list, err := s.repo.ListFiltered(cctx, f)
 	if err != nil {
 		return nil, err
 	}
+
 	return list, nil
 }
 
