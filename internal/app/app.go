@@ -70,9 +70,9 @@ func Run(cfg *config.Config) error {
 
 	// Cars API — REST эндпоинты
 	router.Route("/cars", func(r chi.Router) {
-		r.Post("/", carHandlers.CreateCar) // создание машины
-		r.Get("/{id}", carHandlers.GetCar) // получение машины по ID
-		r.Get("/", carHandlers.ListCars)   // список всех машин
+		r.Post("/", carHandlers.CreateCar)         // создание машины
+		r.Get("/{id}", carHandlers.GetCar)         // получение машины по ID
+		r.Get("/search", carHandlers.ListFiltered) // отфильтрованный список машин
 		r.Put("/{id}", carHandlers.UpdateCar)
 		r.Delete("/{id}", carHandlers.DeleteCar)
 	})
