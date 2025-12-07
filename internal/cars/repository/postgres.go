@@ -8,6 +8,7 @@ import (
 
 	"github.com/A1exanderShin/autoglobal/internal/cars"
 	"github.com/A1exanderShin/autoglobal/internal/cars/dto"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -30,8 +31,8 @@ func NewPostgresCarRepository(db *pgxpool.Pool) *PostgresCarRepository {
 // SQL: INSERT INTO ... RETURNING id
 func (r *PostgresCarRepository) Create(ctx context.Context, c cars.Car) (int64, error) {
 	query := `
-		INSERT INTO cars (brand, model, year, price)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO cars (brand, model, year, price, url)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id
 	`
 
@@ -44,6 +45,7 @@ func (r *PostgresCarRepository) Create(ctx context.Context, c cars.Car) (int64, 
 		c.Model,
 		c.Year,
 		c.Price,
+		c.URL,
 	).Scan(&id)
 
 	if err != nil {
@@ -248,4 +250,20 @@ func (r *PostgresCarRepository) Delete(ctx context.Context, id int64) error {
 	}
 
 	return nil
+}
+
+func (r *PostgresCarRepository) ExistsByURL(ctx context.Context, url string) (bool, error) {
+	const query = `SELECT 1 FROM cars WHERE url = $1 LIMIT 1`
+
+	var tmp int
+	err := r.db.QueryRow(ctx, query, url).Scan(&tmp)
+
+	if err == pgx.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
 }

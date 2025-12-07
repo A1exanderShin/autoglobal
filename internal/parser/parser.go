@@ -34,39 +34,19 @@ func (p *Parser) ParsePage(ctx context.Context, url string) (int, error) {
 
 	fmt.Println("[parser] start:", url)
 
-	// ---- 1. HTTP запрос ----
+	// ==== HTTP REQUEST ====
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return 0, err
 	}
 
-	// --- REAL USER-AGENTS ---
 	uaList := []string{
-		// Windows Chrome
 		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-
-		// macOS Safari
 		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
-
-		// Linux Chrome
 		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-
-		// Windows Firefox
 		"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
 	}
-
-	// Ставим случайный настоящий User-Agent
 	req.Header.Set("User-Agent", uaList[rand.Intn(len(uaList))])
-
-	// ---- FULL BROWSER HEADERS ----
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7")
-	req.Header.Set("Connection", "keep-alive")
-	req.Header.Set("Upgrade-Insecure-Requests", "1")
-	req.Header.Set("Sec-Fetch-Dest", "document")
-	req.Header.Set("Sec-Fetch-Mode", "navigate")
-	req.Header.Set("Sec-Fetch-Site", "none")
-	req.Header.Set("Sec-Fetch-User", "?1")
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
@@ -76,43 +56,68 @@ func (p *Parser) ParsePage(ctx context.Context, url string) (int, error) {
 
 	fmt.Println("[parser] status code:", resp.StatusCode)
 
-	// ---- 2. Чтение тела ----
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return 0, fmt.Errorf("read body error: %w", err)
 	}
 
-	// ---- 3. Декодировка Windows-1251 → UTF-8 ----
 	decoder := charmap.Windows1251.NewDecoder()
 	utf8Body, err := decoder.Bytes(bodyBytes)
 	if err != nil {
 		return 0, fmt.Errorf("decode error: %w", err)
 	}
 
-	// ---- 4. Парсинг HTML ----
-	reader := bytes.NewReader(utf8Body)
-	doc, err := goquery.NewDocumentFromReader(reader)
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(utf8Body))
 	if err != nil {
 		return 0, fmt.Errorf("goquery error: %w", err)
 	}
 
-	// ---- 5. Поиск карточек ----
-	cards := doc.Find("[data-ftid='bulls-list_bull']").Length()
-	fmt.Println("[parser] found cards:", cards)
+	// ==== CARD SELECTOR ====
+	cards := doc.Find("div[data-ftid='bulls-list_bull']")
+	fmt.Println("[parser] found cards:", cards.Length())
 
-	doc.Find("[data-ftid='bulls-list_bull']").Each(func(i int, s *goquery.Selection) {
+	if cards.Length() == 0 {
+		fmt.Println("[parser] NO CARDS FOUND — HTML structure changed")
+		return 0, nil
+	}
 
-		// ---- title + price ----
-		title := strings.TrimSpace(s.Find("[data-ftid='bull_title']").Text())
-		price := strings.TrimSpace(s.Find("[data-ftid='bull_price']").Text())
-
-		if title == "" || price == "" {
+	cards.Each(func(i int, s *goquery.Selection) {
+		// ==== URL ====
+		link, ok := s.Find("a[data-ftid='bull_title']").Attr("href")
+		if !ok || link == "" {
+			fmt.Println("[SKIP] no URL")
 			return
 		}
 
-		// ---- title: Brand Model, Year ----
+		// ==== TITLE ====
+		title := strings.TrimSpace(s.Find("a[data-ftid='bull_title']").Text())
+		if title == "" {
+			fmt.Println("[SKIP] no title")
+			return
+		}
+
+		// ==== PRICE ====
+		priceStr := strings.TrimSpace(s.Find("span[data-ftid='bull_price']").Text())
+		if priceStr == "" {
+			fmt.Println("[SKIP] no price")
+			return
+		}
+
+		// Parse price
+		raw := strings.ReplaceAll(priceStr, " ", "")
+		raw = strings.ReplaceAll(raw, "\u00A0", "")
+		raw = strings.ReplaceAll(raw, "₽", "")
+		price, _ := strconv.Atoi(raw)
+		if price <= 0 {
+			fmt.Println("[SKIP] invalid price")
+			return
+		}
+
+		// ==== Parse brand/model/year ====
+		// Example: "Volkswagen Tiguan, 2021"
 		parts := strings.Split(title, ",")
 		if len(parts) < 2 {
+			fmt.Println("[SKIP] title format invalid:", title)
 			return
 		}
 
@@ -121,74 +126,68 @@ func (p *Parser) ParsePage(ctx context.Context, url string) (int, error) {
 
 		year, _ := strconv.Atoi(yearStr)
 		if year == 0 {
+			fmt.Println("[SKIP] invalid year:", yearStr)
 			return
 		}
 
-		words := strings.Split(main, " ")
-		if len(words) < 2 {
+		name := strings.Split(main, " ")
+		if len(name) < 2 {
+			fmt.Println("[SKIP] cannot split brand/model:", main)
 			return
 		}
 
-		brand := words[0]
-		model := strings.Join(words[1:], " ")
+		brand := name[0]
+		model := strings.Join(name[1:], " ")
 
-		// ---- PRICE ----
-		raw := strings.ReplaceAll(price, " ", "")
-		raw = strings.ReplaceAll(raw, "\u00A0", "")
-		raw = strings.ReplaceAll(raw, "₽", "")
-		raw = strings.TrimSpace(raw)
-
-		priceInt, _ := strconv.Atoi(raw)
-		if priceInt <= 0 {
+		// ==== DEDUP BY URL ====
+		exists, err := p.carService.ExistsByURL(ctx, link)
+		if err != nil {
+			fmt.Println("[ERROR] ExistsByURL:", err)
+			return
+		}
+		if exists {
+			fmt.Println("[SKIP] duplicate:", link)
 			return
 		}
 
-		// TODO: add deduplication (check if car exists in DB)
-
-		fmt.Println("------ CAR ------")
+		fmt.Println("=== NEW CAR ===")
+		fmt.Println("URL:", link)
 		fmt.Println("TITLE:", title)
 		fmt.Println("BRAND:", brand)
 		fmt.Println("MODEL:", model)
 		fmt.Println("YEAR:", year)
-		fmt.Println("PRICE:", priceInt)
+		fmt.Println("PRICE:", price)
 
-		// ---- recording ----
-		count++
-
+		// ==== SAVE ====
 		req := dto.CreateCarRequest{
 			Brand: brand,
 			Model: model,
 			Year:  year,
-			Price: priceInt,
+			Price: price,
+			URL:   link,
 		}
 
 		id, err := p.carService.CreateCar(ctx, req)
 		if err != nil {
-			fmt.Println("[parser] save error:", err)
+			fmt.Println("[ERROR] save:", err)
 			return
 		}
 
-		fmt.Println("[parser] saved car with ID:", id)
+		fmt.Println("[OK] saved:", id)
+		count++
 	})
 
 	return count, nil
 }
 
 func (p *Parser) ParseAll(ctx context.Context, baseURL string, maxPages int) error {
-	originalURL := baseURL
+	base := strings.TrimSuffix(baseURL, "/")
 
 	for page := 1; page <= maxPages; page++ {
 
-		var url string
-
-		if page == 1 {
-			url = originalURL
-		} else {
-			if strings.Contains(originalURL, "?") {
-				url = originalURL + "&page=" + strconv.Itoa(page)
-			} else {
-				url = originalURL + "?page=" + strconv.Itoa(page)
-			}
+		url := base
+		if page > 1 {
+			url = fmt.Sprintf("%s/page%d/", base, page)
 		}
 
 		fmt.Println("[parser] parsing:", url)
@@ -198,23 +197,14 @@ func (p *Parser) ParseAll(ctx context.Context, baseURL string, maxPages int) err
 			return err
 		}
 
-		// НЕТ объявлений → стоп
 		if count == 0 {
+			fmt.Println("[parser] STOP — no cars on page")
 			break
 		}
-
-		// ---- Progress bar ----
-		progress := float64(page) / float64(maxPages)
-		percent := int(progress * 100)
-		bars := int(progress * 20)
-
-		bar := strings.Repeat("#", bars) + strings.Repeat(".", 20-bars)
-
-		fmt.Printf("\r[%s] %d%% (%d/%d страниц)", bar, percent, page, maxPages)
 
 		time.Sleep(time.Duration(300+rand.Intn(1200)) * time.Millisecond)
 	}
 
-	fmt.Println("\n[parser] finished — no more pages")
+	fmt.Println("[parser] finished")
 	return nil
 }

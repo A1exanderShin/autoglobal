@@ -21,6 +21,7 @@ type CarRepository interface {
 	ListFiltered(ctx context.Context, f dto.CarFilters) ([]cars.Car, error)
 	Update(ctx context.Context, id int64, car cars.Car) error
 	Delete(ctx context.Context, id int64) error
+	ExistsByURL(ctx context.Context, url string) (bool, error)
 }
 
 type Service struct {
@@ -52,6 +53,7 @@ func (s *Service) CreateCar(ctx context.Context, req dto.CreateCarRequest) (int6
 		Model: req.Model,
 		Year:  req.Year,
 		Price: req.Price,
+		URL:   req.URL,
 	}
 
 	id, err := s.repo.Create(cctx, car)
@@ -118,6 +120,7 @@ func (s *Service) UpdateCar(ctx context.Context, id int64, req dto.UpdateCarRequ
 		Model: req.Model,
 		Year:  req.Year,
 		Price: req.Price,
+		URL:   req.URL,
 	}
 
 	// Вызываем репозиторий
@@ -145,4 +148,8 @@ func (s *Service) DeleteCar(ctx context.Context, id int64) error {
 	}
 
 	return nil
+}
+
+func (s *Service) ExistsByURL(ctx context.Context, url string) (bool, error) {
+	return s.repo.ExistsByURL(ctx, url)
 }
