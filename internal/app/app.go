@@ -52,7 +52,7 @@ func Run(cfg *config.Config) error {
 
 	// --- временный запуск парсера ---
 	p := parser.NewParser(carSvc)
-	go p.ParsePage(context.Background(), "https://auto.drom.ru/")
+	go p.ParseAll(context.Background(), "https://auto.drom.ru/", 100)
 	// ---------------------------------
 
 	// 4. Роутер + middleware
