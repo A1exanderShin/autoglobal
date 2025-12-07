@@ -7,4 +7,5 @@ type CarResponse struct {
 	Model string `json:"model"`
 	Year  int    `json:"year"`
 	Price int    `json:"price"`
+	URL   string `json:"url"`
 }
