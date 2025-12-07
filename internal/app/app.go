@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/A1exanderShin/autoglobal/internal/config"
 	httpHandlers "github.com/A1exanderShin/autoglobal/internal/http/handlers"
 	"github.com/A1exanderShin/autoglobal/internal/http/middleware"
+	"github.com/A1exanderShin/autoglobal/internal/parser"
 	"github.com/A1exanderShin/autoglobal/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,57 +41,42 @@ func Run(cfg *config.Config) error {
 		return err
 	}
 
-	// 2. Прогон миграций (инициализация структуры БД)
+	// 2. Прогон миграций
 	if err := storage.RunMigrations(pool); err != nil {
 		return fmt.Errorf("migrations failed: %w", err)
 	}
 
-	// -----------------------------
-	// Cars module (репозиторий → сервис → хендлеры)
-	// -----------------------------
-
-	// Репозиторий — работает с PostgreSQL
+	// 3. Инициализация модулей Cars
 	carRepo := repository.NewPostgresCarRepository(pool)
-
-	// Service — бизнес-логика (валидация, обработка ошибок, управление сущностями)
 	carSvc := service.New(carRepo)
 
-	// Handlers — HTTP-уровень (получают запросы, вызывают сервис, формируют ответы)
-	carHandlers := carHandlers.NewCarHandlers(carSvc)
+	// --- временный запуск парсера ---
+	p := parser.NewParser(carSvc)
+	go p.ParsePage(context.Background(), "https://auto.drom.ru/")
+	// ---------------------------------
 
-	// 3. Создание HTTP-роутера
+	// 4. Роутер + middleware
 	router := chi.NewRouter()
+	router.Use(middleware.RequestID)
+	router.Use(middleware.Logger)
+	router.Use(middleware.Recoverer)
 
-	// 4. Middleware (добавляют функциональность на уровне HTTP)
-	router.Use(middleware.RequestID) // каждому запросу присваивается уникальный ID
-	router.Use(middleware.Logger)    // логирование запросов/ответов
-	router.Use(middleware.Recoverer) // защита от паник — возвращает JSON 500
-
-	// Health-check для автоматизированных систем мониторинга
 	router.Get("/health", httpHandlers.Health)
 
-	// Cars API — REST эндпоинты
+	carHandlers := carHandlers.NewCarHandlers(carSvc)
 	router.Route("/cars", func(r chi.Router) {
-		r.Post("/", carHandlers.CreateCar)         // создание машины
-		r.Get("/{id}", carHandlers.GetCar)         // получение машины по ID
-		r.Get("/search", carHandlers.ListFiltered) // отфильтрованный список машин
+		r.Post("/", carHandlers.CreateCar)
+		r.Get("/{id}", carHandlers.GetCar)
+		r.Get("/search", carHandlers.ListFiltered)
 		r.Put("/{id}", carHandlers.UpdateCar)
 		r.Delete("/{id}", carHandlers.DeleteCar)
 	})
 
-	// 5. Создание объекта приложения (чтобы можно было расширять в будущем)
-	app := &App{
-		Cfg:    *cfg,
-		DB:     pool,
-		Router: router,
-	}
-
-	// 6. Создание и запуск HTTP-сервера
+	// 5. Запуск HTTP сервера
 	srv := http.Server{
-		Addr:    ":" + strconv.Itoa(cfg.HTTP.Port), // порт из конфига
-		Handler: app.Router,                        // корневой роутер
+		Addr:    ":" + strconv.Itoa(cfg.HTTP.Port),
+		Handler: router,
 	}
 
-	// Запускаем сервис (блокирует выполнение)
 	return srv.ListenAndServe()
 }
