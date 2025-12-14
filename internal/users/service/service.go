@@ -20,7 +20,7 @@ type UsersService struct {
 	jwtKey []byte
 }
 
-func NewUsersService(repo repository.UserRepository, jwtKey []byte) *UsersService {
+func New(repo repository.UserRepository, jwtKey []byte) *UsersService {
 	return &UsersService{repo: repo, jwtKey: jwtKey}
 }
 
@@ -145,11 +145,13 @@ func (s *UsersService) Login(ctx context.Context, req dto.LoginRequest) (*dto.To
 }
 
 func (s *UsersService) Refresh(ctx context.Context, refreshToken string) (*dto.TokenResponse, error) {
-	if strings.TrimSpace(refreshToken) == "" {
+	token := strings.TrimSpace(refreshToken)
+	if token == "" {
 		return nil, fmt.Errorf("unauthorized")
 	}
 
-	rt, err := s.repo.GetRefreshToken(ctx, refreshToken)
+	// 1. Получаем refresh token из БД
+	rt, err := s.repo.GetRefreshToken(ctx, token)
 	if err == repository.ErrNotFound {
 		return nil, fmt.Errorf("unauthorized")
 	}
@@ -157,30 +159,44 @@ func (s *UsersService) Refresh(ctx context.Context, refreshToken string) (*dto.T
 		return nil, err
 	}
 
+	// 2. Проверяем срок жизни refresh token
 	if time.Now().After(rt.ExpiresAt) {
-		_ = s.repo.DeleteRefreshToken(ctx, refreshToken)
+		_ = s.repo.DeleteRefreshToken(ctx, token)
 		return nil, fmt.Errorf("unauthorized")
 	}
 
-	// удаляем старый refresh token (rotation)
-	if err := s.repo.DeleteRefreshToken(ctx, refreshToken); err != nil {
-		return nil, err
+	// 3. Получаем пользователя
+	user, err := s.repo.GetUserByID(ctx, rt.UserID)
+	if err == repository.ErrNotFound {
+		return nil, fmt.Errorf("unauthorized")
 	}
-
-	accessToken, err := s.generateAccessToken(rt.UserID, rt.Email)
 	if err != nil {
 		return nil, err
 	}
 
+	// 4. Rotation: удаляем старый refresh token
+	if err := s.repo.DeleteRefreshToken(ctx, token); err != nil {
+		return nil, err
+	}
+
+	// 5. Генерируем новый access token
+	accessToken, err := s.generateAccessToken(user.ID, user.Email)
+	if err != nil {
+		return nil, err
+	}
+
+	// 6. Генерируем новый refresh token
 	newRefreshToken, expiresAt, err := s.generateRefreshToken()
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.repo.SaveRefreshToken(ctx, rt.UserID, newRefreshToken, expiresAt); err != nil {
+	// 7. Сохраняем новый refresh token
+	if err := s.repo.SaveRefreshToken(ctx, user.ID, newRefreshToken, expiresAt); err != nil {
 		return nil, err
 	}
 
+	// 8. Возвращаем ответ
 	return &dto.TokenResponse{
 		AccessToken:  accessToken,
 		RefreshToken: newRefreshToken,

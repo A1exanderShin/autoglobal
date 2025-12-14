@@ -7,13 +7,16 @@ import (
 	"strconv"
 
 	carHandlers "github.com/A1exanderShin/autoglobal/internal/cars/handlers"
-	"github.com/A1exanderShin/autoglobal/internal/cars/repository"
-	"github.com/A1exanderShin/autoglobal/internal/cars/service"
+	carRepository "github.com/A1exanderShin/autoglobal/internal/cars/repository"
+	carService "github.com/A1exanderShin/autoglobal/internal/cars/service"
 	"github.com/A1exanderShin/autoglobal/internal/config"
 	httpHandlers "github.com/A1exanderShin/autoglobal/internal/http/handlers"
 	"github.com/A1exanderShin/autoglobal/internal/http/middleware"
 	"github.com/A1exanderShin/autoglobal/internal/parser"
 	"github.com/A1exanderShin/autoglobal/internal/storage"
+	usersHandlers "github.com/A1exanderShin/autoglobal/internal/users/handlers"
+	"github.com/A1exanderShin/autoglobal/internal/users/repository"
+	"github.com/A1exanderShin/autoglobal/internal/users/service"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -47,8 +50,11 @@ func Run(cfg *config.Config) error {
 	}
 
 	// 3. Инициализация модулей Cars
-	carRepo := repository.NewPostgresCarRepository(pool)
-	carSvc := service.New(carRepo)
+	carRepo := carRepository.NewPostgresCarRepository(pool)
+	carSvc := carService.New(carRepo)
+
+	usersRepo := repository.NewPostgresUsersRepository(pool)
+	usersSvc := service.New(usersRepo, []byte(cfg.Auth.JWTSecret))
 
 	// --- временный запуск парсера ---
 	p := parser.NewParser(carSvc)
@@ -70,6 +76,14 @@ func Run(cfg *config.Config) error {
 		r.Get("/search", carHandlers.ListFiltered)
 		r.Put("/{id}", carHandlers.UpdateCar)
 		r.Delete("/{id}", carHandlers.DeleteCar)
+	})
+
+	usersHandlers := usersHandlers.NewUsersHandlers(usersSvc)
+	router.Route("/users", func(r chi.Router) {
+		r.Post("/register", usersHandlers.Register)
+		r.Post("/login", usersHandlers.Login)
+		r.Post("/logout", usersHandlers.Logout)
+		r.Post("/refresh", usersHandlers.Refresh)
 	})
 
 	// 5. Запуск HTTP сервера

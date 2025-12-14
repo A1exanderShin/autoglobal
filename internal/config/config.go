@@ -13,9 +13,15 @@ type PostgresConfig struct {
 	Password string `yaml:"password"`
 	Database string `yaml:"database"`
 }
+
+type AuthConfig struct {
+	JWTSecret string `yaml:"jwt_secret"`
+}
+
 type Config struct {
 	HTTP     HTTPConfig     `yaml:"http"`
 	Postgres PostgresConfig `yaml:"postgres"`
+	Auth     AuthConfig     `yaml:"auth"`
 }
 
 // Прочитать config, распарсить в структуры, вернуть ошибку (если кривой конфиг)
