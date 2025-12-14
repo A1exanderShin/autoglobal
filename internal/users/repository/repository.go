@@ -8,9 +8,9 @@ import (
 	"github.com/A1exanderShin/autoglobal/internal/users"
 )
 
-var ErrNotFound = errors.New("user not found")
+var ErrNotFound = errors.New("users not found")
 
-type UsersRepository interface {
+type UserRepository interface {
 	CreateUser(ctx context.Context, u users.User) (int64, error)
 	GetByEmail(ctx context.Context, email string) (*users.User, error)
 	SaveRefreshToken(ctx context.Context, userID int64, refreshToken string, expiresAt time.Time) error
