@@ -71,11 +71,18 @@ func Run(cfg *config.Config) error {
 
 	carHandlers := carHandlers.NewCarHandlers(carSvc)
 	router.Route("/cars", func(r chi.Router) {
-		r.Post("/", carHandlers.CreateCar)
+		// публичные
 		r.Get("/{id}", carHandlers.GetCar)
 		r.Get("/search", carHandlers.ListFiltered)
-		r.Put("/{id}", carHandlers.UpdateCar)
-		r.Delete("/{id}", carHandlers.DeleteCar)
+
+		// защищённые
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth([]byte(cfg.Auth.JWTSecret)))
+
+			r.Post("/", carHandlers.CreateCar)
+			r.Put("/{id}", carHandlers.UpdateCar)
+			r.Delete("/{id}", carHandlers.DeleteCar)
+		})
 	})
 
 	usersHandlers := usersHandlers.NewUsersHandlers(usersSvc)
