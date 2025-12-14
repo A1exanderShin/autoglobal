@@ -7,3 +7,6 @@ postgres:
   user: "postgres"
   password: "12345"
   database: "db-autoglobal"
+
+auth:
+  jwt_secret: "super-secret-key"
