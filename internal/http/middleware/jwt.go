@@ -65,3 +65,8 @@ func JWTAuth(jwtKey []byte) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+func UserIDFromContext(ctx context.Context) (int64, bool) {
+	id, ok := ctx.Value(userIDKey).(int64)
+	return id, ok
+}

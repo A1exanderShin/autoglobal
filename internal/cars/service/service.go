@@ -8,27 +8,21 @@ import (
 	"github.com/A1exanderShin/autoglobal/internal/cars"
 	"github.com/A1exanderShin/autoglobal/internal/cars/dto"
 	"github.com/A1exanderShin/autoglobal/internal/cars/repository"
+	"github.com/A1exanderShin/autoglobal/internal/http/middleware"
 )
 
 var (
-	ErrValidation = errors.New("validation error")
-	ErrNotFound   = errors.New("car not found")
+	ErrValidation   = errors.New("validation error")
+	ErrNotFound     = errors.New("car not found")
+	ErrUnauthorized = errors.New("unauthorized")
+	ErrForbidden    = errors.New("forbidden")
 )
 
-type CarRepository interface {
-	Create(ctx context.Context, c cars.Car) (int64, error)
-	GetByID(ctx context.Context, id int64) (*cars.Car, error)
-	ListFiltered(ctx context.Context, f dto.CarFilters) ([]cars.Car, error)
-	Update(ctx context.Context, id int64, car cars.Car) error
-	Delete(ctx context.Context, id int64) error
-	ExistsByURL(ctx context.Context, url string) (bool, error)
-}
-
 type Service struct {
-	repo CarRepository
+	repo repository.CarRepository
 }
 
-func New(repo CarRepository) *Service {
+func New(repo repository.CarRepository) *Service {
 	return &Service{repo: repo}
 }
 
@@ -56,7 +50,13 @@ func (s *Service) CreateCar(ctx context.Context, req dto.CreateCarRequest) (int6
 		URL:   req.URL,
 	}
 
-	id, err := s.repo.Create(cctx, car)
+	// userID живёт только в рамках запроса
+	var userID *int64
+	if id, ok := middleware.UserIDFromContext(cctx); ok {
+		userID = &id
+	}
+
+	id, err := s.repo.Create(cctx, car, userID)
 	if err != nil {
 		return 0, err
 	}
@@ -65,28 +65,35 @@ func (s *Service) CreateCar(ctx context.Context, req dto.CreateCarRequest) (int6
 }
 
 func (s *Service) GetCar(ctx context.Context, id int64) (*cars.Car, error) {
-	car, err := s.repo.GetByID(ctx, id)
+	carRow, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return nil, ErrNotFound
+		if err == repository.ErrNotFound {
+			return nil, ErrNotFound
+		}
+		return nil, err
 	}
-	return car, nil
+
+	return &cars.Car{
+		ID:    carRow.ID,
+		Brand: carRow.Brand,
+		Model: carRow.Model,
+		Year:  carRow.Year,
+		Price: carRow.Price,
+		URL:   carRow.URL,
+	}, nil
 }
 
 func (s *Service) ListFiltered(ctx context.Context, f dto.CarFilters) ([]cars.Car, error) {
-	// 1. Валидации диапазонов
 	if f.MinYear != 0 && f.MaxYear != 0 && f.MinYear > f.MaxYear {
 		return nil, ErrValidation
 	}
-
 	if f.MinPrice != 0 && f.MaxPrice != 0 && f.MinPrice > f.MaxPrice {
 		return nil, ErrValidation
 	}
 
-	// 2. Контекст с таймаутом
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	// 3. Вызов репозитория
 	list, err := s.repo.ListFiltered(cctx, f)
 	if err != nil {
 		return nil, err
@@ -98,7 +105,6 @@ func (s *Service) ListFiltered(ctx context.Context, f dto.CarFilters) ([]cars.Ca
 func (s *Service) UpdateCar(ctx context.Context, id int64, req dto.UpdateCarRequest) error {
 	currentYear := time.Now().Year()
 
-	// Валидация входных данных
 	if req.Brand == "" || req.Model == "" {
 		return ErrValidation
 	}
@@ -109,11 +115,26 @@ func (s *Service) UpdateCar(ctx context.Context, id int64, req dto.UpdateCarRequ
 		return ErrValidation
 	}
 
-	// Подготовка контекста с таймаутом
+	userID, ok := middleware.UserIDFromContext(ctx)
+	if !ok {
+		return ErrUnauthorized
+	}
+
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	// Формируем доменную сущность
+	carRow, err := s.repo.GetByID(cctx, id)
+	if err != nil {
+		if err == repository.ErrNotFound {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	if carRow.UserID == nil || *carRow.UserID != userID {
+		return ErrForbidden
+	}
+
 	car := cars.Car{
 		ID:    id,
 		Brand: req.Brand,
@@ -123,23 +144,19 @@ func (s *Service) UpdateCar(ctx context.Context, id int64, req dto.UpdateCarRequ
 		URL:   req.URL,
 	}
 
-	// Вызываем репозиторий
-	err := s.repo.Update(cctx, id, car)
-	if err != nil {
-		if err == repository.ErrNotFound {
-			return ErrNotFound
-		}
-		return err
-	}
-
-	return nil
+	return s.repo.Update(cctx, id, car)
 }
 
 func (s *Service) DeleteCar(ctx context.Context, id int64) error {
+	userID, ok := middleware.UserIDFromContext(ctx)
+	if !ok {
+		return ErrUnauthorized
+	}
+
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	err := s.repo.Delete(cctx, id)
+	carRow, err := s.repo.GetByID(cctx, id)
 	if err != nil {
 		if err == repository.ErrNotFound {
 			return ErrNotFound
@@ -147,7 +164,11 @@ func (s *Service) DeleteCar(ctx context.Context, id int64) error {
 		return err
 	}
 
-	return nil
+	if carRow.UserID == nil || *carRow.UserID != userID {
+		return ErrForbidden
+	}
+
+	return s.repo.Delete(cctx, id)
 }
 
 func (s *Service) ExistsByURL(ctx context.Context, url string) (bool, error) {

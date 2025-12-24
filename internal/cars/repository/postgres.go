@@ -29,10 +29,15 @@ func NewPostgresCarRepository(db *pgxpool.Pool) *PostgresCarRepository {
 // Create — создаёт новую запись автомобиля в таблице cars
 // Принимает доменную модель cars.Car (без ID) и возвращает сгенерированный ID
 // SQL: INSERT INTO ... RETURNING id
-func (r *PostgresCarRepository) Create(ctx context.Context, c cars.Car) (int64, error) {
+func (r *PostgresCarRepository) Create(
+	ctx context.Context,
+	c cars.Car,
+	userID *int64,
+) (int64, error) {
+
 	query := `
-		INSERT INTO cars (brand, model, year, price, url)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO cars (brand, model, year, price, url, user_id)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id
 	`
 
@@ -46,6 +51,7 @@ func (r *PostgresCarRepository) Create(ctx context.Context, c cars.Car) (int64, 
 		c.Year,
 		c.Price,
 		c.URL,
+		userID,
 	).Scan(&id)
 
 	if err != nil {
@@ -57,31 +63,25 @@ func (r *PostgresCarRepository) Create(ctx context.Context, c cars.Car) (int64, 
 
 // GetByID — вернуть одну запись машины по id
 // Если записи нет, вернётся pgx.ErrNoRows (это обработает сервисный слой)
-func (r *PostgresCarRepository) GetByID(ctx context.Context, id int64) (*cars.Car, error) {
+func (r *PostgresCarRepository) GetByID(ctx context.Context, id int64) (*CarRow, error) {
 	query := `
-		SELECT id, brand, model, year, price
+		SELECT id, brand, model, year, price, url, user_id
 		FROM cars
 		WHERE id = $1
 	`
 
-	// QueryRow — получаем ровно одну строку
-	row := r.db.QueryRow(ctx, query, id)
+	var c CarRow
+	err := r.db.QueryRow(ctx, query, id).
+		Scan(&c.ID, &c.Brand, &c.Model, &c.Year, &c.Price, &c.URL, &c.UserID)
 
-	var car cars.Car
-
-	// Scan мапит значения колонок в структуру Car
-	err := row.Scan(
-		&car.ID,
-		&car.Brand,
-		&car.Model,
-		&car.Year,
-		&car.Price,
-	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 
-	return &car, nil
+	return &c, nil
 }
 
 // List — возвращает список всех машин
